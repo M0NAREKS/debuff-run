@@ -130,3 +130,349 @@ startBtn.onclick=start; restartBtn.onclick=start; restartTop.onclick=start;
 init(); requestAnimationFrame(loop);
 </script>
 </body></html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debuff Run</title>
+  <style>
+    :root {
+      --bg1: #080b1a;
+      --bg2: #111835;
+      --card: rgba(16, 22, 52, 0.72);
+      --line: rgba(140, 163, 255, 0.5);
+      --text: #eff2ff;
+      --muted: #b8c3ff;
+      --good: #4df4b7;
+      --danger: #ff6a6a;
+      --warn: #ffd56f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: var(--text);
+      background: radial-gradient(circle at 25% 20%, #1a2257 0%, var(--bg2) 35%, var(--bg1) 100%);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .app { width: min(1160px, 100%); margin: 0 auto; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    h1 { margin: 0; font-size: clamp(24px, 3vw, 44px); letter-spacing: 0.5px; }
+    .subtitle { color: var(--muted); margin-top: 4px; }
+    .btn {
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: linear-gradient(180deg, rgba(117,138,255,.25), rgba(90,110,255,.12));
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn:hover { filter: brightness(1.08); }
+
+    .panel {
+      background: var(--card);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 14px 28px rgba(0,0,0,.25);
+    }
+    .hud {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .hud-item { padding: 10px; border-radius: 12px; background: rgba(112,130,255,.1); border: 1px solid rgba(124,146,255,.35); }
+    .label { color: #a8b5ff; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+    .value { font-size: 20px; font-weight: 800; }
+
+    .game-wrap { position: relative; overflow: hidden; border-radius: 14px; }
+    canvas { width: 100%; height: auto; display: block; border-radius: 14px; background: linear-gradient(#121845, #0a1029); }
+    .big {
+      position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+      font-size: clamp(28px, 7vw, 96px); font-weight: 900; text-shadow: 0 0 20px rgba(124,146,255,.8);
+      opacity: 0; transition: .25s;
+    }
+    .center-card {
+      position: absolute; inset: 0; display: grid; place-items: center; z-index: 4;
+      background: linear-gradient(180deg, rgba(6,8,20,.35), rgba(6,8,20,.75));
+    }
+    .center-card.hidden { display: none; }
+    .dialog { width: min(560px, calc(100% - 32px)); text-align: center; }
+    .dialog h2 { margin: 0 0 6px; font-size: clamp(22px,4vw,34px); }
+    .dialog p { color: var(--muted); }
+    .keys { font-size: 14px; color: #ccdaff; margin-top: 8px; }
+
+    .meta { margin-top: 10px; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+    @media (max-width: 850px){ .hud { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="top">
+      <div>
+        <h1>Debuff Run</h1>
+        <div class="subtitle">Her 5 saniyede oyun sana ihanet eder. En kısa sürede bitir!</div>
+      </div>
+      <button id="restartBtn" class="btn">Yeniden Başlat (R)</button>
+    </section>
+
+    <section class="panel hud">
+      <article class="hud-item"><div class="label">Durum</div><div id="state" class="value">Hazır</div></article>
+      <article class="hud-item"><div class="label">Aktif Debuff</div><div id="debuff" class="value">Yok</div></article>
+      <article class="hud-item"><div class="label">Skor (Süre)</div><div id="score" class="value">0.00s</div></article>
+      <article class="hud-item"><div class="label">Mesafe</div><div id="dist" class="value">0m</div></article>
+    </section>
+
+    <section class="panel game-wrap">
+      <canvas id="game" width="1200" height="600"></canvas>
+      <div id="bigText" class="big"></div>
+      <div id="menu" class="center-card">
+        <div class="panel dialog">
+          <h2>Parkura Hazır mısın?</h2>
+          <p>İlk 3 saniye normal. Sonra her 5 saniyede rastgele bir debuff gelir.</p>
+          <div class="keys">A/D veya ←/→ ile hareket · Space ile zıpla</div>
+          <br />
+          <button id="startBtn" class="btn">Oyunu Başlat</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="meta">
+      <span>Debuff'lar: Ters Kontrol · Kaygan Zemin · Ağır Çekim · Turbo Kaos · Gecikmeli Tepki</span>
+      <span>Maksimum hedef süre: 45-60sn</span>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const stateEl = document.getElementById('state');
+    const debuffEl = document.getElementById('debuff');
+    const scoreEl = document.getElementById('score');
+    const distEl = document.getElementById('dist');
+    const bigTextEl = document.getElementById('bigText');
+    const menuEl = document.getElementById('menu');
+
+    const WORLD_LENGTH = 5200;
+    const GRAVITY = 0.62;
+    const BASE = { speed: 4.5, jump: -13.2, accel: 0.65, friction: 0.8 };
+
+    const platforms = [
+      {x:0,y:500,w:580,h:100},{x:690,y:500,w:260,h:100},{x:1010,y:500,w:240,h:100},{x:1310,y:460,w:190,h:140},
+      {x:1580,y:500,w:240,h:100},{x:1910,y:500,w:250,h:100},{x:2250,y:450,w:220,h:150},{x:2540,y:500,w:220,h:100},
+      {x:2840,y:500,w:190,h:100},{x:3090,y:430,w:180,h:170},{x:3330,y:500,w:300,h:100},{x:3740,y:500,w:260,h:100},
+      {x:4100,y:440,w:170,h:160},{x:4350,y:500,w:220,h:100},{x:4650,y:500,w:560,h:100}
+    ];
+    const spikes = [
+      {x:630,y:500,w:42,h:42},{x:1270,y:500,w:34,h:34},{x:1550,y:500,w:34,h:34},{x:1870,y:500,w:34,h:34},
+      {x:2505,y:500,w:34,h:34},{x:2810,y:500,w:34,h:34},{x:3710,y:500,w:34,h:34},{x:4070,y:500,w:34,h:34},
+      {x:4320,y:500,w:34,h:34}
+    ];
+
+    const debuffs = [
+      { key:'reverse', label:'TERS KONTROL!', short:'Ters', apply:s=> s.reverse=true },
+      { key:'slippery', label:'KAYGAN ZEMİN!', short:'Kaygan', apply:s=>{ s.friction=0.94; s.accel=0.32; } },
+      { key:'slow', label:'AĞIR ÇEKİM!', short:'Yavaş', apply:s=>{ s.speed*=0.55; s.jump*=0.75; } },
+      { key:'turbo', label:'TURBO KAOS!', short:'Turbo', apply:s=>{ s.speed*=1.72; s.accel*=1.45; } },
+      { key:'delay', label:'GECİKMELİ TEPKİ!', short:'Delay', apply:s=>{ s.delayMs=300 + Math.random()*200; } }
+    ];
+
+    const input = { left:false, right:false, jump:false };
+    const rawInput = { left:false, right:false, jump:false };
+    let delayedQueue = [];
+
+    let player, game;
+    function resetGame(){
+      player = { x: 90, y: 420, w: 36, h: 52, vx:0, vy:0, grounded:false };
+      game = {
+        running: false,
+        startedAt: 0,
+        introMs: 3000,
+        nextDebuffAt: 8000,
+        cameraX: 0,
+        ended: false,
+        result: '',
+        state: { speed: BASE.speed, jump: BASE.jump, accel: BASE.accel, friction: BASE.friction, reverse:false, delayMs:0 },
+        activeDebuff: null,
+        pendingDebuff: null,
+        clearAt: 0,
+      };
+      delayedQueue = [];
+      setHud('Hazır', 'Yok', 0, 0);
+    }
+
+    function setHud(status, debuff, sec, dist){
+      stateEl.textContent = status;
+      debuffEl.textContent = debuff;
+      scoreEl.textContent = `${sec.toFixed(2)}s`;
+      distEl.textContent = `${Math.max(0, Math.floor(dist))}m`;
+    }
+
+    function showBig(text, tone='normal'){
+      bigTextEl.textContent = text;
+      bigTextEl.style.color = tone === 'danger' ? 'var(--danger)' : (tone === 'good' ? 'var(--good)' : 'white');
+      bigTextEl.style.opacity = '1';
+      clearTimeout(showBig.t);
+      showBig.t = setTimeout(() => bigTextEl.style.opacity = '0', 1050);
+    }
+
+    function startGame(){
+      resetGame();
+      game.running = true;
+      game.startedAt = performance.now();
+      menuEl.classList.add('hidden');
+      stateEl.textContent = '3sn NORMAL';
+      showBig('BAŞLA!', 'good');
+    }
+
+    function applyDebuff(d){
+      game.state = { speed: BASE.speed, jump: BASE.jump, accel: BASE.accel, friction: BASE.friction, reverse:false, delayMs:0 };
+      d.apply(game.state);
+      game.activeDebuff = d;
+      debuffEl.textContent = d.short;
+      stateEl.textContent = d.label;
+      showBig(d.label);
+    }
+
+    function handleDebuffs(t){
+      if (t < game.introMs) return;
+      if (t >= game.nextDebuffAt) {
+        if (game.activeDebuff) {
+          showBig('NORMAL?', 'warning');
+          game.clearAt = t + 500 + Math.random() * 500;
+        }
+        const d = debuffs[Math.floor(Math.random() * debuffs.length)];
+        game.pendingDebuff = { at: t + 650, d };
+        game.nextDebuffAt += 5000;
+      }
+      if (game.clearAt && t >= game.clearAt) {
+        game.state = { speed: BASE.speed, jump: BASE.jump, accel: BASE.accel, friction: BASE.friction, reverse:false, delayMs:0 };
+        game.clearAt = 0;
+        debuffEl.textContent = 'Yok';
+        stateEl.textContent = 'NORMAL';
+      }
+      if (game.pendingDebuff && t >= game.pendingDebuff.at) {
+        applyDebuff(game.pendingDebuff.d);
+        game.pendingDebuff = null;
+      }
+    }
+
+    function enqueueDelayedInput(nowMs){
+      const delay = game.state.delayMs;
+      if (!delay) { Object.assign(input, rawInput); return; }
+      delayedQueue.push({ at: nowMs + delay, data: { ...rawInput } });
+      while (delayedQueue.length && delayedQueue[0].at <= nowMs) Object.assign(input, delayedQueue.shift().data);
+    }
+
+    function coll(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+
+    function endGame(text, tone){
+      game.ended = true;
+      game.running = false;
+      game.result = text;
+      stateEl.textContent = text;
+      showBig(text, tone);
+      setTimeout(() => menuEl.classList.remove('hidden'), 900);
+    }
+
+    function update(now){
+      if (!game.running) return;
+      const t = now - game.startedAt;
+      handleDebuffs(t);
+      enqueueDelayedInput(t);
+
+      let move = Number(input.right) - Number(input.left);
+      if (game.state.reverse) move *= -1;
+
+      player.vx += move * game.state.accel;
+      player.vx = Math.max(-game.state.speed, Math.min(game.state.speed, player.vx));
+      if (!move) player.vx *= game.state.friction;
+
+      if (input.jump && player.grounded) { player.vy = game.state.jump; player.grounded = false; }
+      player.vy += GRAVITY;
+      player.x += player.vx;
+      player.y += player.vy;
+
+      player.grounded = false;
+      for (const p of platforms) {
+        if (!coll(player, p)) continue;
+        const prevY = player.y - player.vy;
+        if (prevY + player.h <= p.y + 2) { player.y = p.y - player.h; player.vy = 0; player.grounded = true; }
+        else if (prevY >= p.y + p.h - 2) { player.y = p.y + p.h; player.vy = 0; }
+        else { if (player.vx > 0) player.x = p.x - player.w; else if (player.vx < 0) player.x = p.x + p.w; player.vx = 0; }
+      }
+
+      for (const s of spikes) if (coll(player, s)) return endGame('ÖLDÜN: DİKEN', 'danger');
+      if (player.y > canvas.height + 150) return endGame('ÖLDÜN: DÜŞTÜN', 'danger');
+      if (player.x + player.w >= WORLD_LENGTH) return endGame('BİTİRDİN!', 'good');
+
+      game.cameraX = Math.max(0, Math.min(player.x - 260, WORLD_LENGTH - canvas.width));
+      const sec = Math.max(0, t - game.introMs) / 1000;
+      setHud(stateEl.textContent, debuffEl.textContent, sec, player.x);
+    }
+
+    function drawBg(cam){
+      ctx.fillStyle = '#0c1230';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      for (let i=0;i<50;i++) {
+        const x = ((i * 239) - cam * 0.2) % (canvas.width + 100);
+        const y = 40 + (i * 57 % 220);
+        ctx.fillStyle = 'rgba(174,197,255,0.2)';
+        ctx.fillRect(x, y, 2, 2);
+      }
+    }
+
+    function draw(){
+      drawBg(game.cameraX);
+      const cam = game.cameraX;
+      ctx.save();
+      ctx.translate(-cam, 0);
+
+      for (const p of platforms) {
+        const g = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
+        g.addColorStop(0, '#7f92ff'); g.addColorStop(1, '#5265da');
+        ctx.fillStyle = g;
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+      }
+      for (const s of spikes) {
+        ctx.fillStyle = '#ff6c6c';
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y+s.h); ctx.lineTo(s.x+s.w/2, s.y); ctx.lineTo(s.x+s.w, s.y+s.h);
+        ctx.closePath(); ctx.fill();
+      }
+
+      ctx.fillStyle = '#4df4b7';
+      ctx.fillRect(WORLD_LENGTH - 18, 340, 18, 160);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+      ctx.restore();
+    }
+
+    function loop(now){ update(now); draw(); requestAnimationFrame(loop); }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') rawInput.left = true;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') rawInput.right = true;
+      if (e.code === 'Space') { rawInput.jump = true; e.preventDefault(); }
+      if (e.code === 'KeyR') startGame();
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') rawInput.left = false;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') rawInput.right = false;
+      if (e.code === 'Space') rawInput.jump = false;
+    });
+
+    document.getElementById('startBtn').addEventListener('click', startGame);
+    document.getElementById('restartBtn').addEventListener('click', startGame);
+
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
