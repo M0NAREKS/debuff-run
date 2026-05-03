@@ -1,389 +1,492 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Debuff Run: Endless Mode</title>
   <style>
-    :root{--bg:#070b1d;--panel:rgba(13,18,45,.78);--line:rgba(136,159,255,.4);--text:#edf2ff;--muted:#b2c0ff;--ok:#74ff9e;--bad:#ff6579;--neon:#74e3ff}
-    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 20% 10%,#1b275f,var(--bg) 45%);color:var(--text);font-family:Inter,system-ui,Arial;padding:16px}
-    .app{max-width:1200px;margin:0 auto}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;backdrop-filter: blur(6px)}
-    .head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.head h1{margin:0;font-size:clamp(24px,4vw,42px)}.muted{color:var(--muted)}
-    .btn{background:linear-gradient(180deg,#7994ff,#5169dd);border:0;color:white;padding:10px 14px;border-radius:10px;font-weight:800;cursor:pointer}
-    .hud{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}.k{font-size:11px;color:#9baeff;text-transform:uppercase}.v{font-size:26px;font-weight:800}
-    .wrap{position:relative;overflow:hidden}.wrap canvas{display:block;width:100%;height:auto;border-radius:12px}
-    .overlay{position:absolute;inset:0;display:grid;place-items:center;z-index:3}.hidden{display:none}
-    .card{width:min(620px,calc(100% - 20px));text-align:center}.card input{width:100%;padding:12px;border-radius:10px;border:1px solid #617dff;background:#0c1332;color:#fff}
-    .big{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;font-size:clamp(28px,8vw,90px);font-weight:900;text-shadow:0 0 18px #7f9dff;opacity:0;transition:.2s}
+    :root { --bg:#070b19; --neon:#6ee7ff; --pink:#ff5cd1; --lime:#7cff84; --danger:#ff5d6c; }
+    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 20% 10%,#1a245d 0,var(--bg) 45%);color:#eef2ff;font-family:Inter,system-ui,Arial}
+    .app{max-width:1200px;margin:0 auto;padding:16px}.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    h1{margin:0;font-size:clamp(24px,4vw,44px)} .sub{color:#b8c5ff}
+    .panel{background:rgba(12,17,40,.72);border:1px solid rgba(135,160,255,.35);border-radius:14px;padding:12px;backdrop-filter: blur(6px)}
+    .hud{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}.hud .k{font-size:11px;color:#9fb2ff;text-transform:uppercase}.hud .v{font-weight:800;font-size:24px}
+    .gameWrap{position:relative;overflow:hidden}.game{display:block;width:100%;height:auto;border-radius:14px;background:linear-gradient(#0e1438,#070b19)}
+    .overlay{position:absolute;inset:0;display:grid;place-items:center;z-index:4}.overlay.hidden{display:none}
+    .card{width:min(620px,calc(100% - 24px));text-align:center}.card input{width:100%;padding:12px;border-radius:10px;border:1px solid #647bff;background:#0b1230;color:#fff;font-weight:700}
+    .btn{margin-top:10px;background:linear-gradient(180deg,#728dff,#5168df);border:0;color:#fff;padding:12px 16px;border-radius:10px;font-weight:800;cursor:pointer}
+    .bigMsg{position:absolute;inset:0;display:grid;place-items:center;font-size:clamp(32px,8vw,88px);font-weight:900;text-shadow:0 0 16px #7ea2ff;opacity:0;transition:.2s;pointer-events:none}
+    .leaderboard{margin-top:10px}.leaderboard ol{margin:6px 0 0;padding-left:18px;color:#d9e1ff}.danger{color:var(--danger)}
+    @media (max-width:850px){.hud{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body>
-  <div class="app">
-    <div class="head">
-      <div><h1>Debuff Run: Endless Mode</h1><div class="muted">3 saniyede öğren, saatlerce ustalaş.</div></div>
-      <button id="topRestart" class="btn">Restart (R)</button>
-    </div>
-
-    <div class="panel hud">
-      <div><div class="k">Mesafe</div><div id="distance" class="v">0 m</div></div>
-      <div><div class="k">Süre</div><div id="time" class="v">0.0 s</div></div>
-      <div><div class="k">Debuff</div><div id="debuff" class="v">Yok</div></div>
-      <div><div class="k">Sonraki</div><div id="next" class="v">3.0 s</div></div>
-    </div>
-
-    <div class="panel wrap">
-      <canvas id="game" width="1280" height="640"></canvas>
-      <div id="big" class="big"></div>
-
-      <div id="startOverlay" class="overlay">
-        <div class="panel card">
-          <h2>Koşuya Başla</h2>
-          <p class="muted">A/D veya ←/→ düzeltme · Space/W/↑ zıplama</p>
-          <input id="nameInput" maxlength="20" value="Runner" placeholder="Oyuncu adı" />
-          <button id="startBtn" class="btn">Başlat</button>
-        </div>
-      </div>
-
-      <div id="overOverlay" class="overlay hidden">
-        <div class="panel card">
-          <h2 style="color:var(--bad);margin:0">Run Failed</h2>
-          <p id="result"></p>
-          <div style="text-align:left;max-height:220px;overflow:auto;background:rgba(5,8,26,.55);border:1px solid rgba(136,159,255,.35);border-radius:10px;padding:8px;margin:8px 0">
-            <b>Top 10 Leaderboard</b>
-            <ol id="board" style="margin:8px 0 0 18px"></ol>
-          </div>
-          <button id="restartBtn" class="btn">Tekrar Dene</button>
-        </div>
-      </div>
-    </div>
-
+<div class="app">
+  <div class="row"><div><h1>Debuff Run: Endless Mode</h1><div class="sub">Simple to learn. Brutal to master.</div></div><button id="restartTop" class="btn">Restart (R)</button></div>
+  <div class="panel hud">
+    <div><div class="k">Distance</div><div id="dist" class="v">0 m</div></div>
+    <div><div class="k">Time</div><div id="time" class="v">0.0 s</div></div>
+    <div><div class="k">Active Debuff</div><div id="debuff" class="v">NONE</div></div>
+    <div><div class="k">Next Debuff</div><div id="next" class="v">3.0 s</div></div>
   </div>
+  <div class="panel gameWrap">
+    <canvas id="game" class="game" width="1280" height="640"></canvas>
+    <div id="bigMsg" class="bigMsg"></div>
+    <div id="startScreen" class="overlay">
+      <div class="panel card">
+        <h2>Start Run</h2>
+        <p>A/D or Arrow keys = small corrections · Space/W/↑ = jump</p>
+        <input id="playerName" maxlength="20" placeholder="Player name" value="Runner" />
+        <button id="startBtn" class="btn">Start Endless Run</button>
+      </div>
+    </div>
+    <div id="gameOver" class="overlay hidden">
+      <div class="panel card">
+        <h2 class="danger">Run Failed</h2>
+        <p id="resultText"></p>
+        <button id="restartBtn" class="btn">Restart</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel leaderboard"><b>Top 10 Leaderboard</b><ol id="board"></ol></div>
+</div>
+<script>
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const el = {dist:dist,time:time,debuff:debuff,next:next,big:bigMsg,start:startScreen,over:gameOver,result:resultText,board,player:playerName};
+const BASE={auto:5.2,side:2.1,jump:-14.6,grav:0.5,fric:0.84}; const SEED=133742;
+const BASE={auto:5.8,side:1.9,jump:-12.8,grav:0.58,fric:0.82}; const SEED=133742;
+const DEBUFFS=[
+ {key:'reverse',name:'REVERSE CONTROLS',apply:s=>s.reverse=true},
+ {key:'slippery',name:'SLIPPERY GROUND',apply:s=>{s.fric=0.95;s.side=1.45}},
+ {key:'slow',name:'SLOW MODE',apply:s=>{s.auto*=0.74;s.jump*=0.82}},
+ {key:'turbo',name:'TURBO MODE',apply:s=>{s.auto*=1.45;s.side*=1.2}},
+ {key:'delay',name:'INPUT DELAY',apply:s=>s.delay=240},
+ {key:'weak',name:'WEAK JUMP',apply:s=>s.jump*=0.78},
+ {key:'weak',name:'WEAK JUMP',apply:s=>s.jump*=0.68},
+];
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let rand=mulberry32(SEED), state, particles=[], input={l:0,r:0,j:0}, raw={l:0,r:0,j:0}, q=[];
+
+function init(){state={running:false,ended:false,name:'Runner',t0:0,last:0,cam:0,dist:0,time:0,shake:0,nextDeb:8000,intro:3000,active:null,pending:null,glitch:0,
+  p:{x:120,y:450,w:34,h:52,vx:0,vy:0,g:false}, mods:{auto:BASE.auto,side:BASE.side,jump:BASE.jump,grav:BASE.grav,fric:BASE.fric,reverse:false,delay:0},
+  segs:[{x:-200,w:900,y:560}], hazards:[]}; q=[]; particles=[]; renderBoard();}
+function resetMods(){state.mods={auto:BASE.auto*(1+Math.min(state.time/110,0.7)),side:BASE.side,jump:BASE.jump,grav:BASE.grav,fric:BASE.fric,reverse:false,delay:0}}
+function showMsg(t,c='#fff'){el.big.textContent=t;el.big.style.color=c;el.big.style.opacity=1;clearTimeout(showMsg.t);showMsg.t=setTimeout(()=>el.big.style.opacity=0,700)}
+function addParticle(x,y,c,v=2,n=8){for(let i=0;i<n;i++){const a=rand()*Math.PI*2,s=v*(.5+rand());particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:35+rand()*20,c})}}
+
+function genUntil(targetX){
+  while(state.segs[state.segs.length-1].x + state.segs[state.segs.length-1].w < targetX){
+    const last=state.segs[state.segs.length-1];
+    const difficulty=Math.min(1,state.time/75); const gap=45+rand()*85 + difficulty*45; const w=360+rand()*320-difficulty*60;
+    const dy=(rand()*2-1)*(14 + difficulty*28); let y=Math.max(500,Math.min(570,last.y+dy));
+    const jumpReach=(Math.abs(BASE.jump)*Math.abs(BASE.jump))/(2*BASE.grav); if (last.y-y>jumpReach-70) y=last.y-(jumpReach-70);
+    const x=last.x+last.w+gap; state.segs.push({x,w:Math.max(210,w),y});
+    if (rand()<0.30 + difficulty*0.30){const count=1+Math.floor(rand()*(1+difficulty*1.5));for(let i=0;i<count;i++){const sx=x+60+i*55;if(sx<x+w-40) state.hazards.push({x:sx,y:y-34,w:32,h:34});}}
+    const difficulty=Math.min(1,state.time/60); const gap=60+rand()*120 + difficulty*70; const w=320+rand()*280-difficulty*80;
+    const dy=(rand()*2-1)*(20 + difficulty*40); let y=Math.max(470,Math.min(575,last.y+dy));
+    const jumpReach=(Math.abs(BASE.jump)*Math.abs(BASE.jump))/(2*BASE.grav); if (last.y-y>jumpReach-70) y=last.y-(jumpReach-70);
+    const x=last.x+last.w+gap; state.segs.push({x,w:Math.max(210,w),y});
+    if (rand()<0.45 + difficulty*0.35){const count=1+Math.floor(rand()*(1+difficulty*2));for(let i=0;i<count;i++){const sx=x+60+i*55;if(sx<x+w-40) state.hazards.push({x:sx,y:y-34,w:32,h:34});}}
+  }
+}
+function pickDebuff(){let d;do d=DEBUFFS[Math.floor(rand()*DEBUFFS.length)]; while(state.active && d.key===state.active.key);return d;}
+function applyDebuff(d){resetMods(); d.apply(state.mods); state.active=d; el.debuff.textContent=d.name; showMsg(d.name,'#ffde7a'); state.shake=8;}
+function tickDebuffs(ms){ if(ms<state.intro) return; if(ms>=state.nextDeb){ state.glitch=500; state.pending={at:ms+500,d:pickDebuff()}; state.nextDeb+=5000; showMsg('GLITCH...', '#ff5cd1'); state.shake=6; }
+  if(state.pending && ms>=state.pending.at){applyDebuff(state.pending.d);state.pending=null;state.glitch=0;} }
+
+function enqueue(ms){if(!state.mods.delay){Object.assign(input,raw);return;} q.push({at:ms+state.mods.delay,s:{...raw}}); while(q.length&&q[0].at<=ms)Object.assign(input,q.shift().s)}
+function coll(a,b){return a.x<a.x+a.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+
+function update(ts){if(!state.running) return; const dt=Math.min(32,ts-state.last||16); state.last=ts; const ms=ts-state.t0; state.time=ms/1000; tickDebuffs(ms); resetMods(); if(state.active) state.active.apply(state.mods);
+  enqueue(ms); let steer=(input.r-input.l); if(state.mods.reverse) steer*=-1; const p=state.p;
+  p.vx += steer*0.16*state.mods.side; p.vx*=state.mods.fric; p.vx += state.mods.auto*0.065; p.vx=Math.min(p.vx, state.mods.auto+4.2);
+  if(input.j&&p.g){p.vy=state.mods.jump; p.g=false; addParticle(p.x+p.w/2,p.y+p.h,'#6ee7ff',2,10)}
+  p.vy += state.mods.grav; p.x += p.vx*dt/16; p.y += p.vy*dt/16;
+  genUntil(p.x+1800); p.g=false;
+  for(const s of state.segs){ if(p.x+p.w>s.x && p.x<s.x+s.w && p.y+p.h>=s.y && p.y+p.h<=s.y+52 && p.vy>=0){ p.y=s.y-p.h; p.vy=0; if(!p.g) addParticle(p.x+p.w/2,p.y+p.h,'#7cff84',1.5,6); p.g=true; }}
+  for(const h of state.hazards){ if(p.x<h.x+h.w&&p.x+p.w>h.x&&p.y<h.y+h.h&&p.y+p.h>h.y){die(); return;} }
+  if(p.y>canvas.height+120) {die();return;}
+  state.cam=Math.max(0,p.x-280); state.dist=Math.floor(p.x/10); el.dist.textContent=state.dist+' m'; el.time.textContent=state.time.toFixed(1)+' s';
+  p.vx += steer*0.12*state.mods.side; p.vx*=state.mods.fric; p.vx += state.mods.auto*0.08; p.vx=Math.min(p.vx, state.mods.auto+4.8);
+  if(input.j&&p.g){p.vy=state.mods.jump; p.g=false; addParticle(p.x+p.w/2,p.y+p.h,'#6ee7ff',2,10)}
+  p.vy += state.mods.grav; p.x += p.vx*dt/16; p.y += p.vy*dt/16;
+  genUntil(p.x+1800); p.g=false;
+  for(const s of state.segs){ if(p.x+p.w>s.x && p.x<s.x+s.w && p.y+p.h>=s.y && p.y+p.h<=s.y+40 && p.vy>=0){ p.y=s.y-p.h; p.vy=0; if(!p.g) addParticle(p.x+p.w/2,p.y+p.h,'#7cff84',1.5,6); p.g=true; }}
+  for(const h of state.hazards){ if(p.x<h.x+h.w&&p.x+p.w>h.x&&p.y<h.y+h.h&&p.y+p.h>h.y){die(); return;} }
+  if(p.y>canvas.height+120) {die();return;}
+  state.cam=Math.max(0,p.x-250); state.dist=Math.floor(p.x/10); el.dist.textContent=state.dist+' m'; el.time.textContent=state.time.toFixed(1)+' s';
+  const next=Math.max(0, (state.nextDeb-ms)/1000); el.next.textContent=next.toFixed(1)+' s';
+  for(const prt of particles){prt.x+=prt.vx; prt.y+=prt.vy; prt.vy+=.04; prt.life-=1} particles=particles.filter(p=>p.life>0);
+}
+function die(){state.running=false; state.ended=true; state.shake=15; showMsg('RUN FAILED','#ff5d6c'); addParticle(state.p.x,state.p.y,'#ff5d6c',4,40); saveScore(); el.result.textContent=`${state.name} • ${state.dist} m • ${state.time.toFixed(1)} s`; el.over.classList.remove('hidden');}
+
+function draw(){ctx.save(); if(state.shake>0){ctx.translate((rand()-.5)*state.shake,(rand()-.5)*state.shake); state.shake*=0.88; if(state.shake<0.4)state.shake=0;}
+  ctx.fillStyle='#070b19'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(let i=0;i<80;i++){const x=((i*157)-state.cam*.2)%(canvas.width+200); const y=(i*73)%280+20; ctx.fillStyle='rgba(147,173,255,.2)'; ctx.fillRect(x,y,2,2)}
+  ctx.translate(-state.cam,0);
+  for(const s of state.segs){ctx.fillStyle='#5c73f3'; ctx.fillRect(s.x,s.y,s.w,80); ctx.fillStyle='rgba(255,255,255,.2)'; ctx.fillRect(s.x,s.y,s.w,6)}
+  for(const h of state.hazards){ctx.fillStyle='#ff5d6c'; ctx.beginPath();ctx.moveTo(h.x,h.y+h.h);ctx.lineTo(h.x+h.w/2,h.y);ctx.lineTo(h.x+h.w,h.y+h.h);ctx.fill();}
+  const p=state.p; ctx.fillStyle='#eaf1ff'; ctx.fillRect(p.x,p.y,p.w,p.h); ctx.fillStyle='#6ee7ff'; ctx.fillRect(p.x+7,p.y+10,20,8);
+  for(const prt of particles){ctx.globalAlpha=Math.max(0,prt.life/55);ctx.fillStyle=prt.c;ctx.fillRect(prt.x,prt.y,3,3);ctx.globalAlpha=1}
+  if(state.glitch>0){state.glitch-=16; ctx.fillStyle='rgba(255,92,209,.08)'; ctx.fillRect(state.cam,0,canvas.width,canvas.height)}
+  ctx.restore();
+}
+function loop(ts){update(ts);draw();requestAnimationFrame(loop)}
+
+function saveScore(){const key='debuff_run_endless_top10'; const data=JSON.parse(localStorage.getItem(key)||'[]'); data.push({n:state.name,d:state.dist,t:state.time,at:Date.now()});
+  data.sort((a,b)=>b.d-a.d||b.t-a.t); localStorage.setItem(key,JSON.stringify(data.slice(0,10))); renderBoard();}
+function renderBoard(){const key='debuff_run_endless_top10'; const data=JSON.parse(localStorage.getItem(key)||'[]'); el.board.innerHTML=''; data.forEach((s,i)=>{const li=document.createElement('li'); li.textContent=`#${i+1} ${s.n} — ${s.d} m (${s.t.toFixed(1)}s)`; el.board.appendChild(li)}); if(!data.length){const li=document.createElement('li');li.textContent='No runs yet';el.board.appendChild(li);}}
+
+function start(){init(); state.name=(el.player.value||'Runner').trim().slice(0,20); state.running=true; state.t0=performance.now(); state.last=state.t0; el.start.classList.add('hidden'); el.over.classList.add('hidden'); el.debuff.textContent='NONE'; showMsg('START!', '#7cff84');}
+
+addEventListener('keydown',e=>{if(['ArrowUp','Space','KeyW'].includes(e.code)){raw.j=1;e.preventDefault()} if(['KeyA','ArrowLeft'].includes(e.code))raw.l=1; if(['KeyD','ArrowRight'].includes(e.code))raw.r=1; if(e.code==='KeyR')start();});
+addEventListener('keyup',e=>{if(['ArrowUp','Space','KeyW'].includes(e.code))raw.j=0; if(['KeyA','ArrowLeft'].includes(e.code))raw.l=0; if(['KeyD','ArrowRight'].includes(e.code))raw.r=0;});
+startBtn.onclick=start; restartBtn.onclick=start; restartTop.onclick=start;
+init(); requestAnimationFrame(loop);
+</script>
+</body></html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debuff Run</title>
+  <style>
+    :root {
+      --bg1: #080b1a;
+      --bg2: #111835;
+      --card: rgba(16, 22, 52, 0.72);
+      --line: rgba(140, 163, 255, 0.5);
+      --text: #eff2ff;
+      --muted: #b8c3ff;
+      --good: #4df4b7;
+      --danger: #ff6a6a;
+      --warn: #ffd56f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: var(--text);
+      background: radial-gradient(circle at 25% 20%, #1a2257 0%, var(--bg2) 35%, var(--bg1) 100%);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .app { width: min(1160px, 100%); margin: 0 auto; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    h1 { margin: 0; font-size: clamp(24px, 3vw, 44px); letter-spacing: 0.5px; }
+    .subtitle { color: var(--muted); margin-top: 4px; }
+    .btn {
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: linear-gradient(180deg, rgba(117,138,255,.25), rgba(90,110,255,.12));
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn:hover { filter: brightness(1.08); }
+
+    .panel {
+      background: var(--card);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 14px 28px rgba(0,0,0,.25);
+    }
+    .hud {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .hud-item { padding: 10px; border-radius: 12px; background: rgba(112,130,255,.1); border: 1px solid rgba(124,146,255,.35); }
+    .label { color: #a8b5ff; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+    .value { font-size: 20px; font-weight: 800; }
+
+    .game-wrap { position: relative; overflow: hidden; border-radius: 14px; }
+    canvas { width: 100%; height: auto; display: block; border-radius: 14px; background: linear-gradient(#121845, #0a1029); }
+    .big {
+      position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+      font-size: clamp(28px, 7vw, 96px); font-weight: 900; text-shadow: 0 0 20px rgba(124,146,255,.8);
+      opacity: 0; transition: .25s;
+    }
+    .center-card {
+      position: absolute; inset: 0; display: grid; place-items: center; z-index: 4;
+      background: linear-gradient(180deg, rgba(6,8,20,.35), rgba(6,8,20,.75));
+    }
+    .center-card.hidden { display: none; }
+    .dialog { width: min(560px, calc(100% - 32px)); text-align: center; }
+    .dialog h2 { margin: 0 0 6px; font-size: clamp(22px,4vw,34px); }
+    .dialog p { color: var(--muted); }
+    .keys { font-size: 14px; color: #ccdaff; margin-top: 8px; }
+
+    .meta { margin-top: 10px; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+    @media (max-width: 850px){ .hud { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="top">
+      <div>
+        <h1>Debuff Run</h1>
+        <div class="subtitle">Her 5 saniyede oyun sana ihanet eder. En kısa sürede bitir!</div>
+      </div>
+      <button id="restartBtn" class="btn">Yeniden Başlat (R)</button>
+    </section>
+
+    <section class="panel hud">
+      <article class="hud-item"><div class="label">Durum</div><div id="state" class="value">Hazır</div></article>
+      <article class="hud-item"><div class="label">Aktif Debuff</div><div id="debuff" class="value">Yok</div></article>
+      <article class="hud-item"><div class="label">Skor (Süre)</div><div id="score" class="value">0.00s</div></article>
+      <article class="hud-item"><div class="label">Mesafe</div><div id="dist" class="value">0m</div></article>
+    </section>
+
+    <section class="panel game-wrap">
+      <canvas id="game" width="1200" height="600"></canvas>
+      <div id="bigText" class="big"></div>
+      <div id="menu" class="center-card">
+        <div class="panel dialog">
+          <h2>Parkura Hazır mısın?</h2>
+          <p>İlk 3 saniye normal. Sonra her 5 saniyede rastgele bir debuff gelir.</p>
+          <div class="keys">A/D veya ←/→ ile hareket · Space ile zıpla</div>
+          <br />
+          <button id="startBtn" class="btn">Oyunu Başlat</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="meta">
+      <span>Debuff'lar: Ters Kontrol · Kaygan Zemin · Ağır Çekim · Turbo Kaos · Gecikmeli Tepki</span>
+      <span>Maksimum hedef süre: 45-60sn</span>
+    </div>
+  </main>
 
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
-    const ui = {
-      distance: document.getElementById('distance'),
-      time: document.getElementById('time'),
-      debuff: document.getElementById('debuff'),
-      next: document.getElementById('next'),
-      big: document.getElementById('big'),
-      startOverlay: document.getElementById('startOverlay'),
-      overOverlay: document.getElementById('overOverlay'),
-      result: document.getElementById('result'),
-      board: document.getElementById('board'),
-      nameInput: document.getElementById('nameInput')
-    };
 
-    const SEED = 133742;
-    const BASE = { auto: 5.1, side: 2.2, jump: -14.8, gravity: 0.50, friction: 0.84 };
-    const DEBUFFS = [
-      { key: 'reverse', label: 'TERS KONTROL', apply: m => { m.reverse = true; } },
-      { key: 'slippery', label: 'KAYGAN ZEMİN', apply: m => { m.friction = 0.95; m.side = 1.45; } },
-      { key: 'slow', label: 'YAVAŞ MOD', apply: m => { m.auto *= 0.75; m.jump *= 0.84; } },
-      { key: 'turbo', label: 'TURBO MOD', apply: m => { m.auto *= 1.40; m.side *= 1.2; } },
-      { key: 'delay', label: 'INPUT DELAY', apply: m => { m.delayMs = 240; } },
-      { key: 'weak', label: 'ZAYIF ZIPLAMA', apply: m => { m.jump *= 0.80; } },
+    const stateEl = document.getElementById('state');
+    const debuffEl = document.getElementById('debuff');
+    const scoreEl = document.getElementById('score');
+    const distEl = document.getElementById('dist');
+    const bigTextEl = document.getElementById('bigText');
+    const menuEl = document.getElementById('menu');
+
+    const WORLD_LENGTH = 5200;
+    const GRAVITY = 0.62;
+    const BASE = { speed: 4.5, jump: -13.2, accel: 0.65, friction: 0.8 };
+
+    const platforms = [
+      {x:0,y:500,w:580,h:100},{x:690,y:500,w:260,h:100},{x:1010,y:500,w:240,h:100},{x:1310,y:460,w:190,h:140},
+      {x:1580,y:500,w:240,h:100},{x:1910,y:500,w:250,h:100},{x:2250,y:450,w:220,h:150},{x:2540,y:500,w:220,h:100},
+      {x:2840,y:500,w:190,h:100},{x:3090,y:430,w:180,h:170},{x:3330,y:500,w:300,h:100},{x:3740,y:500,w:260,h:100},
+      {x:4100,y:440,w:170,h:160},{x:4350,y:500,w:220,h:100},{x:4650,y:500,w:560,h:100}
+    ];
+    const spikes = [
+      {x:630,y:500,w:42,h:42},{x:1270,y:500,w:34,h:34},{x:1550,y:500,w:34,h:34},{x:1870,y:500,w:34,h:34},
+      {x:2505,y:500,w:34,h:34},{x:2810,y:500,w:34,h:34},{x:3710,y:500,w:34,h:34},{x:4070,y:500,w:34,h:34},
+      {x:4320,y:500,w:34,h:34}
     ];
 
-    function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+    const debuffs = [
+      { key:'reverse', label:'TERS KONTROL!', short:'Ters', apply:s=> s.reverse=true },
+      { key:'slippery', label:'KAYGAN ZEMİN!', short:'Kaygan', apply:s=>{ s.friction=0.94; s.accel=0.32; } },
+      { key:'slow', label:'AĞIR ÇEKİM!', short:'Yavaş', apply:s=>{ s.speed*=0.55; s.jump*=0.75; } },
+      { key:'turbo', label:'TURBO KAOS!', short:'Turbo', apply:s=>{ s.speed*=1.72; s.accel*=1.45; } },
+      { key:'delay', label:'GECİKMELİ TEPKİ!', short:'Delay', apply:s=>{ s.delayMs=300 + Math.random()*200; } }
+    ];
 
-    let rand, state, particles, delayedQueue;
-    const rawInput = { left:false, right:false, jump:false };
     const input = { left:false, right:false, jump:false };
+    const rawInput = { left:false, right:false, jump:false };
+    let delayedQueue = [];
 
-    function resetMods() {
-      const difficultyBoost = 1 + Math.min(state.time / 120, 0.55);
-      state.mods = { auto: BASE.auto * difficultyBoost, side: BASE.side, jump: BASE.jump, gravity: BASE.gravity, friction: BASE.friction, reverse:false, delayMs:0 };
-    }
-
-    function initGame() {
-      rand = mulberry32(SEED);
-      particles = [];
-      delayedQueue = [];
-      state = {
+    let player, game;
+    function resetGame(){
+      player = { x: 90, y: 420, w: 36, h: 52, vx:0, vy:0, grounded:false };
+      game = {
         running: false,
-        playerName: 'Runner',
-        startAt: 0,
-        lastTs: 0,
-        time: 0,
-        distance: 0,
-        camX: 0,
-        shake: 0,
+        startedAt: 0,
         introMs: 3000,
         nextDebuffAt: 8000,
+        cameraX: 0,
+        ended: false,
+        result: '',
+        state: { speed: BASE.speed, jump: BASE.jump, accel: BASE.accel, friction: BASE.friction, reverse:false, delayMs:0 },
         activeDebuff: null,
         pendingDebuff: null,
-        glitchMs: 0,
-        player: { x: 120, y: 430, w: 34, h: 54, vx: 0, vy: 0, grounded: false },
-        segments: [{ x: -240, y: 560, w: 900 }],
-        spikes: [],
-        mods: null
+        clearAt: 0,
       };
-      resetMods();
-      ui.distance.textContent = '0 m';
-      ui.time.textContent = '0.0 s';
-      ui.debuff.textContent = 'Yok';
-      ui.next.textContent = '3.0 s';
-      renderBoard();
+      delayedQueue = [];
+      setHud('Hazır', 'Yok', 0, 0);
     }
 
-    function showBig(text, color='#fff') {
-      ui.big.textContent = text;
-      ui.big.style.color = color;
-      ui.big.style.opacity = 1;
+    function setHud(status, debuff, sec, dist){
+      stateEl.textContent = status;
+      debuffEl.textContent = debuff;
+      scoreEl.textContent = `${sec.toFixed(2)}s`;
+      distEl.textContent = `${Math.max(0, Math.floor(dist))}m`;
+    }
+
+    function showBig(text, tone='normal'){
+      bigTextEl.textContent = text;
+      bigTextEl.style.color = tone === 'danger' ? 'var(--danger)' : (tone === 'good' ? 'var(--good)' : 'white');
+      bigTextEl.style.opacity = '1';
       clearTimeout(showBig.t);
-      showBig.t = setTimeout(() => ui.big.style.opacity = 0, 760);
+      showBig.t = setTimeout(() => bigTextEl.style.opacity = '0', 1050);
     }
 
-    function addParticles(x,y,color,count=10,spd=2){
-      for (let i=0;i<count;i++) {
-        const a = rand() * Math.PI * 2;
-        const v = spd * (0.5 + rand());
-        particles.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v, life: 28 + rand()*24, color });
-      }
+    function startGame(){
+      resetGame();
+      game.running = true;
+      game.startedAt = performance.now();
+      menuEl.classList.add('hidden');
+      stateEl.textContent = '3sn NORMAL';
+      showBig('BAŞLA!', 'good');
     }
 
-    function generateTerrain(untilX) {
-      while (state.segments[state.segments.length - 1].x + state.segments[state.segments.length - 1].w < untilX) {
-        const prev = state.segments[state.segments.length - 1];
-        const d = Math.min(1, state.time / 75);
-        const gap = 44 + rand()*86 + d*44;
-        const width = 360 + rand()*320 - d*60;
-        const deltaY = (rand()*2 - 1) * (14 + d*30);
-        let y = Math.max(500, Math.min(570, prev.y + deltaY));
-        const jumpReach = (Math.abs(BASE.jump) ** 2) / (2 * BASE.gravity);
-        if (prev.y - y > jumpReach - 70) y = prev.y - (jumpReach - 70);
+    function applyDebuff(d){
+      game.state = { speed: BASE.speed, jump: BASE.jump, accel: BASE.accel, friction: BASE.friction, reverse:false, delayMs:0 };
+      d.apply(game.state);
+      game.activeDebuff = d;
+      debuffEl.textContent = d.short;
+      stateEl.textContent = d.label;
+      showBig(d.label);
+    }
 
-        const x = prev.x + prev.w + gap;
-        const seg = { x, y, w: Math.max(220, width) };
-        state.segments.push(seg);
-
-        if (rand() < 0.30 + d*0.30) {
-          const count = 1 + Math.floor(rand() * (1 + d*1.5));
-          for (let i=0;i<count;i++) {
-            const sx = x + 62 + i*56;
-            if (sx < x + seg.w - 42) state.spikes.push({ x: sx, y: y - 34, w: 32, h: 34 });
-          }
+    function handleDebuffs(t){
+      if (t < game.introMs) return;
+      if (t >= game.nextDebuffAt) {
+        if (game.activeDebuff) {
+          showBig('NORMAL?', 'warning');
+          game.clearAt = t + 500 + Math.random() * 500;
         }
+        const d = debuffs[Math.floor(Math.random() * debuffs.length)];
+        game.pendingDebuff = { at: t + 650, d };
+        game.nextDebuffAt += 5000;
+      }
+      if (game.clearAt && t >= game.clearAt) {
+        game.state = { speed: BASE.speed, jump: BASE.jump, accel: BASE.accel, friction: BASE.friction, reverse:false, delayMs:0 };
+        game.clearAt = 0;
+        debuffEl.textContent = 'Yok';
+        stateEl.textContent = 'NORMAL';
+      }
+      if (game.pendingDebuff && t >= game.pendingDebuff.at) {
+        applyDebuff(game.pendingDebuff.d);
+        game.pendingDebuff = null;
       }
     }
 
-    function pickDebuff() {
-      let d;
-      do d = DEBUFFS[Math.floor(rand() * DEBUFFS.length)]; while (state.activeDebuff && d.key === state.activeDebuff.key);
-      return d;
+    function enqueueDelayedInput(nowMs){
+      const delay = game.state.delayMs;
+      if (!delay) { Object.assign(input, rawInput); return; }
+      delayedQueue.push({ at: nowMs + delay, data: { ...rawInput } });
+      while (delayedQueue.length && delayedQueue[0].at <= nowMs) Object.assign(input, delayedQueue.shift().data);
     }
 
-    function applyDebuff(d) {
-      state.activeDebuff = d;
-      resetMods();
-      d.apply(state.mods);
-      ui.debuff.textContent = d.label;
-      state.shake = 7;
-      showBig(d.label, '#ffd77a');
+    function coll(a,b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
+
+    function endGame(text, tone){
+      game.ended = true;
+      game.running = false;
+      game.result = text;
+      stateEl.textContent = text;
+      showBig(text, tone);
+      setTimeout(() => menuEl.classList.remove('hidden'), 900);
     }
 
-    function updateDebuffs(ms) {
-      if (ms < state.introMs) return;
-      if (ms >= state.nextDebuffAt) {
-        state.pendingDebuff = { at: ms + 500, debuff: pickDebuff() };
-        state.nextDebuffAt += 5000;
-        state.glitchMs = 500;
-        state.shake = 6;
-        showBig('GLITCH!', '#ff77d9');
+    function update(now){
+      if (!game.running) return;
+      const t = now - game.startedAt;
+      handleDebuffs(t);
+      enqueueDelayedInput(t);
+
+      let move = Number(input.right) - Number(input.left);
+      if (game.state.reverse) move *= -1;
+
+      player.vx += move * game.state.accel;
+      player.vx = Math.max(-game.state.speed, Math.min(game.state.speed, player.vx));
+      if (!move) player.vx *= game.state.friction;
+
+      if (input.jump && player.grounded) { player.vy = game.state.jump; player.grounded = false; }
+      player.vy += GRAVITY;
+      player.x += player.vx;
+      player.y += player.vy;
+
+      player.grounded = false;
+      for (const p of platforms) {
+        if (!coll(player, p)) continue;
+        const prevY = player.y - player.vy;
+        if (prevY + player.h <= p.y + 2) { player.y = p.y - player.h; player.vy = 0; player.grounded = true; }
+        else if (prevY >= p.y + p.h - 2) { player.y = p.y + p.h; player.vy = 0; }
+        else { if (player.vx > 0) player.x = p.x - player.w; else if (player.vx < 0) player.x = p.x + p.w; player.vx = 0; }
       }
-      if (state.pendingDebuff && ms >= state.pendingDebuff.at) {
-        applyDebuff(state.pendingDebuff.debuff);
-        state.pendingDebuff = null;
-        state.glitchMs = 0;
-      }
+
+      for (const s of spikes) if (coll(player, s)) return endGame('ÖLDÜN: DİKEN', 'danger');
+      if (player.y > canvas.height + 150) return endGame('ÖLDÜN: DÜŞTÜN', 'danger');
+      if (player.x + player.w >= WORLD_LENGTH) return endGame('BİTİRDİN!', 'good');
+
+      game.cameraX = Math.max(0, Math.min(player.x - 260, WORLD_LENGTH - canvas.width));
+      const sec = Math.max(0, t - game.introMs) / 1000;
+      setHud(stateEl.textContent, debuffEl.textContent, sec, player.x);
     }
 
-    function updateDelayedInput(ms) {
-      if (!state.mods.delayMs) { Object.assign(input, rawInput); return; }
-      delayedQueue.push({ at: ms + state.mods.delayMs, snap: { ...rawInput } });
-      while (delayedQueue.length && delayedQueue[0].at <= ms) Object.assign(input, delayedQueue.shift().snap);
-    }
-
-    function die() {
-      state.running = false;
-      addParticles(state.player.x, state.player.y, '#ff6579', 40, 4);
-      state.shake = 14;
-      showBig('RUN FAILED', '#ff6579');
-      saveScore();
-      ui.result.textContent = `${state.playerName} • ${state.distance} m • ${state.time.toFixed(1)} s`;
-      ui.overOverlay.classList.remove('hidden');
-    }
-
-    function update(ts) {
-      if (!state.running) return;
-      const dt = Math.min(32, (ts - state.lastTs) || 16);
-      state.lastTs = ts;
-      const ms = ts - state.startAt;
-      state.time = ms / 1000;
-
-      resetMods();
-      if (state.activeDebuff) state.activeDebuff.apply(state.mods);
-      updateDebuffs(ms);
-      updateDelayedInput(ms);
-
-      const p = state.player;
-      let steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      if (state.mods.reverse) steer *= -1;
-
-      p.vx += steer * 0.16 * state.mods.side;
-      p.vx *= state.mods.friction;
-      p.vx += state.mods.auto * 0.065;
-      p.vx = Math.min(p.vx, state.mods.auto + 4.2);
-
-      if (input.jump && p.grounded) {
-        p.vy = state.mods.jump;
-        p.grounded = false;
-        addParticles(p.x + p.w/2, p.y + p.h, '#74e3ff', 12, 2);
-      }
-
-      p.vy += state.mods.gravity;
-      p.x += p.vx * dt / 16;
-      p.y += p.vy * dt / 16;
-
-      generateTerrain(p.x + 1800);
-      p.grounded = false;
-      for (const s of state.segments) {
-        const withinX = p.x + p.w > s.x && p.x < s.x + s.w;
-        const landing = p.y + p.h >= s.y && p.y + p.h <= s.y + 52 && p.vy >= 0;
-        if (withinX && landing) {
-          p.y = s.y - p.h;
-          p.vy = 0;
-          if (!p.grounded) addParticles(p.x + p.w/2, p.y + p.h, '#74ff9e', 7, 1.5);
-          p.grounded = true;
-        }
-      }
-
-      for (const sp of state.spikes) {
-        if (p.x < sp.x + sp.w && p.x + p.w > sp.x && p.y < sp.y + sp.h && p.y + p.h > sp.y) return die();
-      }
-      if (p.y > canvas.height + 120) return die();
-
-      state.camX = Math.max(0, p.x - 280);
-      state.distance = Math.floor(p.x / 10);
-      ui.distance.textContent = `${state.distance} m`;
-      ui.time.textContent = `${state.time.toFixed(1)} s`;
-      ui.next.textContent = `${Math.max(0, (state.nextDebuffAt - ms) / 1000).toFixed(1)} s`;
-
-      for (const pt of particles) { pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.04; pt.life -= 1; }
-      particles = particles.filter(pt => pt.life > 0);
-    }
-
-    function draw() {
-      ctx.save();
-      if (state.shake > 0) {
-        ctx.translate((rand()-0.5)*state.shake, (rand()-0.5)*state.shake);
-        state.shake *= 0.88;
-        if (state.shake < 0.35) state.shake = 0;
-      }
-
-      ctx.fillStyle = '#070b1d';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      for (let i=0;i<90;i++) {
-        const x = ((i*163) - state.camX*0.2) % (canvas.width + 220);
-        const y = (i*77) % 300 + 20;
-        ctx.fillStyle = 'rgba(144,167,255,0.2)';
+    function drawBg(cam){
+      ctx.fillStyle = '#0c1230';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      for (let i=0;i<50;i++) {
+        const x = ((i * 239) - cam * 0.2) % (canvas.width + 100);
+        const y = 40 + (i * 57 % 220);
+        ctx.fillStyle = 'rgba(174,197,255,0.2)';
         ctx.fillRect(x, y, 2, 2);
       }
+    }
 
-      ctx.translate(-state.camX, 0);
-      for (const s of state.segments) {
-        ctx.fillStyle = '#5f76f3';
-        ctx.fillRect(s.x, s.y, s.w, 80);
-        ctx.fillStyle = 'rgba(255,255,255,.2)';
-        ctx.fillRect(s.x, s.y, s.w, 6);
+    function draw(){
+      drawBg(game.cameraX);
+      const cam = game.cameraX;
+      ctx.save();
+      ctx.translate(-cam, 0);
+
+      for (const p of platforms) {
+        const g = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
+        g.addColorStop(0, '#7f92ff'); g.addColorStop(1, '#5265da');
+        ctx.fillStyle = g;
+        ctx.fillRect(p.x, p.y, p.w, p.h);
       }
-
-      for (const sp of state.spikes) {
-        ctx.fillStyle = '#ff6579';
+      for (const s of spikes) {
+        ctx.fillStyle = '#ff6c6c';
         ctx.beginPath();
-        ctx.moveTo(sp.x, sp.y + sp.h);
-        ctx.lineTo(sp.x + sp.w/2, sp.y);
-        ctx.lineTo(sp.x + sp.w, sp.y + sp.h);
-        ctx.fill();
+        ctx.moveTo(s.x, s.y+s.h); ctx.lineTo(s.x+s.w/2, s.y); ctx.lineTo(s.x+s.w, s.y+s.h);
+        ctx.closePath(); ctx.fill();
       }
 
-      const p = state.player;
-      ctx.fillStyle = '#edf2ff';
-      ctx.fillRect(p.x, p.y, p.w, p.h);
-      ctx.fillStyle = '#74e3ff';
-      ctx.fillRect(p.x + 7, p.y + 10, 20, 8);
+      ctx.fillStyle = '#4df4b7';
+      ctx.fillRect(WORLD_LENGTH - 18, 340, 18, 160);
 
-      for (const pt of particles) {
-        ctx.globalAlpha = Math.max(0, pt.life / 52);
-        ctx.fillStyle = pt.color;
-        ctx.fillRect(pt.x, pt.y, 3, 3);
-        ctx.globalAlpha = 1;
-      }
-
-      if (state.glitchMs > 0) {
-        state.glitchMs -= 16;
-        ctx.fillStyle = 'rgba(255,119,217,.08)';
-        ctx.fillRect(state.camX, 0, canvas.width, canvas.height);
-      }
-
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(player.x, player.y, player.w, player.h);
       ctx.restore();
     }
 
-    function loop(ts) { update(ts); draw(); requestAnimationFrame(loop); }
+    function loop(now){ update(now); draw(); requestAnimationFrame(loop); }
 
-    function saveScore() {
-      const key = 'debuff_run_endless_top10';
-      const list = JSON.parse(localStorage.getItem(key) || '[]');
-      list.push({ name: state.playerName, distance: state.distance, time: state.time });
-      list.sort((a,b) => b.distance - a.distance || b.time - a.time);
-      localStorage.setItem(key, JSON.stringify(list.slice(0, 10)));
-      renderBoard();
-    }
-
-    function renderBoard() {
-      const key = 'debuff_run_endless_top10';
-      const list = JSON.parse(localStorage.getItem(key) || '[]');
-      ui.board.innerHTML = '';
-      if (!list.length) {
-        const li = document.createElement('li'); li.textContent = 'Henüz skor yok'; ui.board.appendChild(li); return;
-      }
-      list.forEach((s,i) => { const li = document.createElement('li'); li.textContent = `#${i+1} ${s.name} — ${s.distance} m (${s.time.toFixed(1)}s)`; ui.board.appendChild(li); });
-    }
-
-    function startRun() {
-      initGame();
-      state.playerName = (ui.nameInput.value || 'Runner').trim().slice(0,20);
-      state.running = true;
-      state.startAt = performance.now();
-      state.lastTs = state.startAt;
-      ui.startOverlay.classList.add('hidden');
-      ui.overOverlay.classList.add('hidden');
-      rawInput.left = rawInput.right = rawInput.jump = false;
-      input.left = input.right = input.jump = false;
-      ui.debuff.textContent = 'Yok';
-      showBig('START!', '#74ff9e');
-    }
-
-    window.addEventListener('keydown', e => {
-      if (['KeyA','ArrowLeft'].includes(e.code)) rawInput.left = true;
-      if (['KeyD','ArrowRight'].includes(e.code)) rawInput.right = true;
-      if (['Space','KeyW','ArrowUp'].includes(e.code)) { rawInput.jump = true; e.preventDefault(); }
-      if (e.code === 'KeyR') startRun();
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') rawInput.left = true;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') rawInput.right = true;
+      if (e.code === 'Space') { rawInput.jump = true; e.preventDefault(); }
+      if (e.code === 'KeyR') startGame();
     });
-    window.addEventListener('keyup', e => {
-      if (['KeyA','ArrowLeft'].includes(e.code)) rawInput.left = false;
-      if (['KeyD','ArrowRight'].includes(e.code)) rawInput.right = false;
-      if (['Space','KeyW','ArrowUp'].includes(e.code)) rawInput.jump = false;
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') rawInput.left = false;
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') rawInput.right = false;
+      if (e.code === 'Space') rawInput.jump = false;
     });
 
-    document.getElementById('startBtn').onclick = startRun;
-    document.getElementById('restartBtn').onclick = startRun;
-    document.getElementById('topRestart').onclick = startRun;
+    document.getElementById('startBtn').addEventListener('click', startGame);
+    document.getElementById('restartBtn').addEventListener('click', startGame);
 
-    initGame();
+    resetGame();
     requestAnimationFrame(loop);
   </script>
 </body>
