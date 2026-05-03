@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debuff Run: Endless Mode</title>
+  <style>
+    :root { --bg:#070b19; --neon:#6ee7ff; --pink:#ff5cd1; --lime:#7cff84; --danger:#ff5d6c; }
+    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 20% 10%,#1a245d 0,var(--bg) 45%);color:#eef2ff;font-family:Inter,system-ui,Arial}
+    .app{max-width:1200px;margin:0 auto;padding:16px}.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    h1{margin:0;font-size:clamp(24px,4vw,44px)} .sub{color:#b8c5ff}
+    .panel{background:rgba(12,17,40,.72);border:1px solid rgba(135,160,255,.35);border-radius:14px;padding:12px;backdrop-filter: blur(6px)}
+    .hud{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}.hud .k{font-size:11px;color:#9fb2ff;text-transform:uppercase}.hud .v{font-weight:800;font-size:24px}
+    .gameWrap{position:relative;overflow:hidden}.game{display:block;width:100%;height:auto;border-radius:14px;background:linear-gradient(#0e1438,#070b19)}
+    .overlay{position:absolute;inset:0;display:grid;place-items:center;z-index:4}.overlay.hidden{display:none}
+    .card{width:min(620px,calc(100% - 24px));text-align:center}.card input{width:100%;padding:12px;border-radius:10px;border:1px solid #647bff;background:#0b1230;color:#fff;font-weight:700}
+    .btn{margin-top:10px;background:linear-gradient(180deg,#728dff,#5168df);border:0;color:#fff;padding:12px 16px;border-radius:10px;font-weight:800;cursor:pointer}
+    .bigMsg{position:absolute;inset:0;display:grid;place-items:center;font-size:clamp(32px,8vw,88px);font-weight:900;text-shadow:0 0 16px #7ea2ff;opacity:0;transition:.2s;pointer-events:none}
+    .leaderboard{margin-top:10px}.leaderboard ol{margin:6px 0 0;padding-left:18px;color:#d9e1ff}.danger{color:var(--danger)}
+    @media (max-width:850px){.hud{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="row"><div><h1>Debuff Run: Endless Mode</h1><div class="sub">Simple to learn. Brutal to master.</div></div><button id="restartTop" class="btn">Restart (R)</button></div>
+  <div class="panel hud">
+    <div><div class="k">Distance</div><div id="dist" class="v">0 m</div></div>
+    <div><div class="k">Time</div><div id="time" class="v">0.0 s</div></div>
+    <div><div class="k">Active Debuff</div><div id="debuff" class="v">NONE</div></div>
+    <div><div class="k">Next Debuff</div><div id="next" class="v">3.0 s</div></div>
+  </div>
+  <div class="panel gameWrap">
+    <canvas id="game" class="game" width="1280" height="640"></canvas>
+    <div id="bigMsg" class="bigMsg"></div>
+    <div id="startScreen" class="overlay">
+      <div class="panel card">
+        <h2>Start Run</h2>
+        <p>A/D or Arrow keys = small corrections · Space/W/↑ = jump</p>
+        <input id="playerName" maxlength="20" placeholder="Player name" value="Runner" />
+        <button id="startBtn" class="btn">Start Endless Run</button>
+      </div>
+    </div>
+    <div id="gameOver" class="overlay hidden">
+      <div class="panel card">
+        <h2 class="danger">Run Failed</h2>
+        <p id="resultText"></p>
+        <button id="restartBtn" class="btn">Restart</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel leaderboard"><b>Top 10 Leaderboard</b><ol id="board"></ol></div>
+</div>
+<script>
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const el = {dist:dist,time:time,debuff:debuff,next:next,big:bigMsg,start:startScreen,over:gameOver,result:resultText,board,player:playerName};
+const BASE={auto:5.2,side:2.1,jump:-14.6,grav:0.5,fric:0.84}; const SEED=133742;
+const DEBUFFS=[
+ {key:'reverse',name:'REVERSE CONTROLS',apply:s=>s.reverse=true},
+ {key:'slippery',name:'SLIPPERY GROUND',apply:s=>{s.fric=0.95;s.side=1.45}},
+ {key:'slow',name:'SLOW MODE',apply:s=>{s.auto*=0.74;s.jump*=0.82}},
+ {key:'turbo',name:'TURBO MODE',apply:s=>{s.auto*=1.45;s.side*=1.2}},
+ {key:'delay',name:'INPUT DELAY',apply:s=>s.delay=240},
+ {key:'weak',name:'WEAK JUMP',apply:s=>s.jump*=0.78},
+];
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let rand=mulberry32(SEED), state, particles=[], input={l:0,r:0,j:0}, raw={l:0,r:0,j:0}, q=[];
+
+function init(){state={running:false,ended:false,name:'Runner',t0:0,last:0,cam:0,dist:0,time:0,shake:0,nextDeb:8000,intro:3000,active:null,pending:null,glitch:0,
+  p:{x:120,y:450,w:34,h:52,vx:0,vy:0,g:false}, mods:{auto:BASE.auto,side:BASE.side,jump:BASE.jump,grav:BASE.grav,fric:BASE.fric,reverse:false,delay:0},
+  segs:[{x:-200,w:900,y:560}], hazards:[]}; q=[]; particles=[]; renderBoard();}
+function resetMods(){state.mods={auto:BASE.auto*(1+Math.min(state.time/110,0.7)),side:BASE.side,jump:BASE.jump,grav:BASE.grav,fric:BASE.fric,reverse:false,delay:0}}
+function showMsg(t,c='#fff'){el.big.textContent=t;el.big.style.color=c;el.big.style.opacity=1;clearTimeout(showMsg.t);showMsg.t=setTimeout(()=>el.big.style.opacity=0,700)}
+function addParticle(x,y,c,v=2,n=8){for(let i=0;i<n;i++){const a=rand()*Math.PI*2,s=v*(.5+rand());particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:35+rand()*20,c})}}
+
+function genUntil(targetX){
+  while(state.segs[state.segs.length-1].x + state.segs[state.segs.length-1].w < targetX){
+    const last=state.segs[state.segs.length-1];
+    const difficulty=Math.min(1,state.time/75); const gap=45+rand()*85 + difficulty*45; const w=360+rand()*320-difficulty*60;
+    const dy=(rand()*2-1)*(14 + difficulty*28); let y=Math.max(500,Math.min(570,last.y+dy));
+    const jumpReach=(Math.abs(BASE.jump)*Math.abs(BASE.jump))/(2*BASE.grav); if (last.y-y>jumpReach-70) y=last.y-(jumpReach-70);
+    const x=last.x+last.w+gap; state.segs.push({x,w:Math.max(210,w),y});
+    if (rand()<0.30 + difficulty*0.30){const count=1+Math.floor(rand()*(1+difficulty*1.5));for(let i=0;i<count;i++){const sx=x+60+i*55;if(sx<x+w-40) state.hazards.push({x:sx,y:y-34,w:32,h:34});}}
+  }
+}
+function pickDebuff(){let d;do d=DEBUFFS[Math.floor(rand()*DEBUFFS.length)]; while(state.active && d.key===state.active.key);return d;}
+function applyDebuff(d){resetMods(); d.apply(state.mods); state.active=d; el.debuff.textContent=d.name; showMsg(d.name,'#ffde7a'); state.shake=8;}
+function tickDebuffs(ms){ if(ms<state.intro) return; if(ms>=state.nextDeb){ state.glitch=500; state.pending={at:ms+500,d:pickDebuff()}; state.nextDeb+=5000; showMsg('GLITCH...', '#ff5cd1'); state.shake=6; }
+  if(state.pending && ms>=state.pending.at){applyDebuff(state.pending.d);state.pending=null;state.glitch=0;} }
+
+function enqueue(ms){if(!state.mods.delay){Object.assign(input,raw);return;} q.push({at:ms+state.mods.delay,s:{...raw}}); while(q.length&&q[0].at<=ms)Object.assign(input,q.shift().s)}
+function coll(a,b){return a.x<a.x+a.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+
+function update(ts){if(!state.running) return; const dt=Math.min(32,ts-state.last||16); state.last=ts; const ms=ts-state.t0; state.time=ms/1000; tickDebuffs(ms); resetMods(); if(state.active) state.active.apply(state.mods);
+  enqueue(ms); let steer=(input.r-input.l); if(state.mods.reverse) steer*=-1; const p=state.p;
+  p.vx += steer*0.16*state.mods.side; p.vx*=state.mods.fric; p.vx += state.mods.auto*0.065; p.vx=Math.min(p.vx, state.mods.auto+4.2);
+  if(input.j&&p.g){p.vy=state.mods.jump; p.g=false; addParticle(p.x+p.w/2,p.y+p.h,'#6ee7ff',2,10)}
+  p.vy += state.mods.grav; p.x += p.vx*dt/16; p.y += p.vy*dt/16;
+  genUntil(p.x+1800); p.g=false;
+  for(const s of state.segs){ if(p.x+p.w>s.x && p.x<s.x+s.w && p.y+p.h>=s.y && p.y+p.h<=s.y+52 && p.vy>=0){ p.y=s.y-p.h; p.vy=0; if(!p.g) addParticle(p.x+p.w/2,p.y+p.h,'#7cff84',1.5,6); p.g=true; }}
+  for(const h of state.hazards){ if(p.x<h.x+h.w&&p.x+p.w>h.x&&p.y<h.y+h.h&&p.y+p.h>h.y){die(); return;} }
+  if(p.y>canvas.height+120) {die();return;}
+  state.cam=Math.max(0,p.x-280); state.dist=Math.floor(p.x/10); el.dist.textContent=state.dist+' m'; el.time.textContent=state.time.toFixed(1)+' s';
+  const next=Math.max(0, (state.nextDeb-ms)/1000); el.next.textContent=next.toFixed(1)+' s';
+  for(const prt of particles){prt.x+=prt.vx; prt.y+=prt.vy; prt.vy+=.04; prt.life-=1} particles=particles.filter(p=>p.life>0);
+}
+function die(){state.running=false; state.ended=true; state.shake=15; showMsg('RUN FAILED','#ff5d6c'); addParticle(state.p.x,state.p.y,'#ff5d6c',4,40); saveScore(); el.result.textContent=`${state.name} • ${state.dist} m • ${state.time.toFixed(1)} s`; el.over.classList.remove('hidden');}
+
+function draw(){ctx.save(); if(state.shake>0){ctx.translate((rand()-.5)*state.shake,(rand()-.5)*state.shake); state.shake*=0.88; if(state.shake<0.4)state.shake=0;}
+  ctx.fillStyle='#070b19'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(let i=0;i<80;i++){const x=((i*157)-state.cam*.2)%(canvas.width+200); const y=(i*73)%280+20; ctx.fillStyle='rgba(147,173,255,.2)'; ctx.fillRect(x,y,2,2)}
+  ctx.translate(-state.cam,0);
+  for(const s of state.segs){ctx.fillStyle='#5c73f3'; ctx.fillRect(s.x,s.y,s.w,80); ctx.fillStyle='rgba(255,255,255,.2)'; ctx.fillRect(s.x,s.y,s.w,6)}
+  for(const h of state.hazards){ctx.fillStyle='#ff5d6c'; ctx.beginPath();ctx.moveTo(h.x,h.y+h.h);ctx.lineTo(h.x+h.w/2,h.y);ctx.lineTo(h.x+h.w,h.y+h.h);ctx.fill();}
+  const p=state.p; ctx.fillStyle='#eaf1ff'; ctx.fillRect(p.x,p.y,p.w,p.h); ctx.fillStyle='#6ee7ff'; ctx.fillRect(p.x+7,p.y+10,20,8);
+  for(const prt of particles){ctx.globalAlpha=Math.max(0,prt.life/55);ctx.fillStyle=prt.c;ctx.fillRect(prt.x,prt.y,3,3);ctx.globalAlpha=1}
+  if(state.glitch>0){state.glitch-=16; ctx.fillStyle='rgba(255,92,209,.08)'; ctx.fillRect(state.cam,0,canvas.width,canvas.height)}
+  ctx.restore();
+}
+function loop(ts){update(ts);draw();requestAnimationFrame(loop)}
+
+function saveScore(){const key='debuff_run_endless_top10'; const data=JSON.parse(localStorage.getItem(key)||'[]'); data.push({n:state.name,d:state.dist,t:state.time,at:Date.now()});
+  data.sort((a,b)=>b.d-a.d||b.t-a.t); localStorage.setItem(key,JSON.stringify(data.slice(0,10))); renderBoard();}
+function renderBoard(){const key='debuff_run_endless_top10'; const data=JSON.parse(localStorage.getItem(key)||'[]'); el.board.innerHTML=''; data.forEach((s,i)=>{const li=document.createElement('li'); li.textContent=`#${i+1} ${s.n} — ${s.d} m (${s.t.toFixed(1)}s)`; el.board.appendChild(li)}); if(!data.length){const li=document.createElement('li');li.textContent='No runs yet';el.board.appendChild(li);}}
+
+function start(){init(); state.name=(el.player.value||'Runner').trim().slice(0,20); state.running=true; state.t0=performance.now(); state.last=state.t0; el.start.classList.add('hidden'); el.over.classList.add('hidden'); el.debuff.textContent='NONE'; showMsg('START!', '#7cff84');}
+
+addEventListener('keydown',e=>{if(['ArrowUp','Space','KeyW'].includes(e.code)){raw.j=1;e.preventDefault()} if(['KeyA','ArrowLeft'].includes(e.code))raw.l=1; if(['KeyD','ArrowRight'].includes(e.code))raw.r=1; if(e.code==='KeyR')start();});
+addEventListener('keyup',e=>{if(['ArrowUp','Space','KeyW'].includes(e.code))raw.j=0; if(['KeyA','ArrowLeft'].includes(e.code))raw.l=0; if(['KeyD','ArrowRight'].includes(e.code))raw.r=0;});
+startBtn.onclick=start; restartBtn.onclick=start; restartTop.onclick=start;
+init(); requestAnimationFrame(loop);
+</script>
+</body></html>
