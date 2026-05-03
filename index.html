@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debuff Run: Endless Mode</title>
+  <style>
+    :root{--bg:#070b1d;--panel:rgba(13,18,45,.78);--line:rgba(136,159,255,.4);--text:#edf2ff;--muted:#b2c0ff;--ok:#74ff9e;--bad:#ff6579;--neon:#74e3ff}
+    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 20% 10%,#1b275f,var(--bg) 45%);color:var(--text);font-family:Inter,system-ui,Arial;padding:16px}
+    .app{max-width:1200px;margin:0 auto}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;backdrop-filter: blur(6px)}
+    .head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.head h1{margin:0;font-size:clamp(24px,4vw,42px)}.muted{color:var(--muted)}
+    .btn{background:linear-gradient(180deg,#7994ff,#5169dd);border:0;color:white;padding:10px 14px;border-radius:10px;font-weight:800;cursor:pointer}
+    .hud{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}.k{font-size:11px;color:#9baeff;text-transform:uppercase}.v{font-size:26px;font-weight:800}
+    .wrap{position:relative;overflow:hidden}.wrap canvas{display:block;width:100%;height:auto;border-radius:12px}
+    .overlay{position:absolute;inset:0;display:grid;place-items:center;z-index:3}.hidden{display:none}
+    .card{width:min(620px,calc(100% - 20px));text-align:center}.card input{width:100%;padding:12px;border-radius:10px;border:1px solid #617dff;background:#0c1332;color:#fff}
+    .big{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;font-size:clamp(28px,8vw,90px);font-weight:900;text-shadow:0 0 18px #7f9dff;opacity:0;transition:.2s}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="head">
+      <div><h1>Debuff Run: Endless Mode</h1><div class="muted">3 saniyede öğren, saatlerce ustalaş.</div></div>
+      <button id="topRestart" class="btn">Restart (R)</button>
+    </div>
+
+    <div class="panel hud">
+      <div><div class="k">Mesafe</div><div id="distance" class="v">0 m</div></div>
+      <div><div class="k">Süre</div><div id="time" class="v">0.0 s</div></div>
+      <div><div class="k">Debuff</div><div id="debuff" class="v">Yok</div></div>
+      <div><div class="k">Sonraki</div><div id="next" class="v">3.0 s</div></div>
+    </div>
+
+    <div class="panel wrap">
+      <canvas id="game" width="1280" height="640"></canvas>
+      <div id="big" class="big"></div>
+
+      <div id="startOverlay" class="overlay">
+        <div class="panel card">
+          <h2>Koşuya Başla</h2>
+          <p class="muted">A/D veya ←/→ düzeltme · Space/W/↑ zıplama</p>
+          <input id="nameInput" maxlength="20" value="Runner" placeholder="Oyuncu adı" />
+          <button id="startBtn" class="btn">Başlat</button>
+        </div>
+      </div>
+
+      <div id="overOverlay" class="overlay hidden">
+        <div class="panel card">
+          <h2 style="color:var(--bad);margin:0">Run Failed</h2>
+          <p id="result"></p>
+          <div style="text-align:left;max-height:220px;overflow:auto;background:rgba(5,8,26,.55);border:1px solid rgba(136,159,255,.35);border-radius:10px;padding:8px;margin:8px 0">
+            <b>Top 10 Leaderboard</b>
+            <ol id="board" style="margin:8px 0 0 18px"></ol>
+          </div>
+          <button id="restartBtn" class="btn">Tekrar Dene</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const ui = {
+      distance: document.getElementById('distance'),
+      time: document.getElementById('time'),
+      debuff: document.getElementById('debuff'),
+      next: document.getElementById('next'),
+      big: document.getElementById('big'),
+      startOverlay: document.getElementById('startOverlay'),
+      overOverlay: document.getElementById('overOverlay'),
+      result: document.getElementById('result'),
+      board: document.getElementById('board'),
+      nameInput: document.getElementById('nameInput')
+    };
+
+    const SEED = 133742;
+    const BASE = { auto: 5.1, side: 2.2, jump: -14.8, gravity: 0.50, friction: 0.84 };
+    const DEBUFFS = [
+      { key: 'reverse', label: 'TERS KONTROL', apply: m => { m.reverse = true; } },
+      { key: 'slippery', label: 'KAYGAN ZEMİN', apply: m => { m.friction = 0.95; m.side = 1.45; } },
+      { key: 'slow', label: 'YAVAŞ MOD', apply: m => { m.auto *= 0.75; m.jump *= 0.84; } },
+      { key: 'turbo', label: 'TURBO MOD', apply: m => { m.auto *= 1.40; m.side *= 1.2; } },
+      { key: 'delay', label: 'INPUT DELAY', apply: m => { m.delayMs = 240; } },
+      { key: 'weak', label: 'ZAYIF ZIPLAMA', apply: m => { m.jump *= 0.80; } },
+    ];
+
+    function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+    let rand, state, particles, delayedQueue;
+    const rawInput = { left:false, right:false, jump:false };
+    const input = { left:false, right:false, jump:false };
+
+    function resetMods() {
+      const difficultyBoost = 1 + Math.min(state.time / 120, 0.55);
+      state.mods = { auto: BASE.auto * difficultyBoost, side: BASE.side, jump: BASE.jump, gravity: BASE.gravity, friction: BASE.friction, reverse:false, delayMs:0 };
+    }
+
+    function initGame() {
+      rand = mulberry32(SEED);
+      particles = [];
+      delayedQueue = [];
+      state = {
+        running: false,
+        playerName: 'Runner',
+        startAt: 0,
+        lastTs: 0,
+        time: 0,
+        distance: 0,
+        camX: 0,
+        shake: 0,
+        introMs: 3000,
+        nextDebuffAt: 8000,
+        activeDebuff: null,
+        pendingDebuff: null,
+        glitchMs: 0,
+        player: { x: 120, y: 430, w: 34, h: 54, vx: 0, vy: 0, grounded: false },
+        segments: [{ x: -240, y: 560, w: 900 }],
+        spikes: [],
+        mods: null
+      };
+      resetMods();
+      ui.distance.textContent = '0 m';
+      ui.time.textContent = '0.0 s';
+      ui.debuff.textContent = 'Yok';
+      ui.next.textContent = '3.0 s';
+      renderBoard();
+    }
+
+    function showBig(text, color='#fff') {
+      ui.big.textContent = text;
+      ui.big.style.color = color;
+      ui.big.style.opacity = 1;
+      clearTimeout(showBig.t);
+      showBig.t = setTimeout(() => ui.big.style.opacity = 0, 760);
+    }
+
+    function addParticles(x,y,color,count=10,spd=2){
+      for (let i=0;i<count;i++) {
+        const a = rand() * Math.PI * 2;
+        const v = spd * (0.5 + rand());
+        particles.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v, life: 28 + rand()*24, color });
+      }
+    }
+
+    function generateTerrain(untilX) {
+      while (state.segments[state.segments.length - 1].x + state.segments[state.segments.length - 1].w < untilX) {
+        const prev = state.segments[state.segments.length - 1];
+        const d = Math.min(1, state.time / 75);
+        const gap = 44 + rand()*86 + d*44;
+        const width = 360 + rand()*320 - d*60;
+        const deltaY = (rand()*2 - 1) * (14 + d*30);
+        let y = Math.max(500, Math.min(570, prev.y + deltaY));
+        const jumpReach = (Math.abs(BASE.jump) ** 2) / (2 * BASE.gravity);
+        if (prev.y - y > jumpReach - 70) y = prev.y - (jumpReach - 70);
+
+        const x = prev.x + prev.w + gap;
+        const seg = { x, y, w: Math.max(220, width) };
+        state.segments.push(seg);
+
+        if (rand() < 0.30 + d*0.30) {
+          const count = 1 + Math.floor(rand() * (1 + d*1.5));
+          for (let i=0;i<count;i++) {
+            const sx = x + 62 + i*56;
+            if (sx < x + seg.w - 42) state.spikes.push({ x: sx, y: y - 34, w: 32, h: 34 });
+          }
+        }
+      }
+    }
+
+    function pickDebuff() {
+      let d;
+      do d = DEBUFFS[Math.floor(rand() * DEBUFFS.length)]; while (state.activeDebuff && d.key === state.activeDebuff.key);
+      return d;
+    }
+
+    function applyDebuff(d) {
+      state.activeDebuff = d;
+      resetMods();
+      d.apply(state.mods);
+      ui.debuff.textContent = d.label;
+      state.shake = 7;
+      showBig(d.label, '#ffd77a');
+    }
+
+    function updateDebuffs(ms) {
+      if (ms < state.introMs) return;
+      if (ms >= state.nextDebuffAt) {
+        state.pendingDebuff = { at: ms + 500, debuff: pickDebuff() };
+        state.nextDebuffAt += 5000;
+        state.glitchMs = 500;
+        state.shake = 6;
+        showBig('GLITCH!', '#ff77d9');
+      }
+      if (state.pendingDebuff && ms >= state.pendingDebuff.at) {
+        applyDebuff(state.pendingDebuff.debuff);
+        state.pendingDebuff = null;
+        state.glitchMs = 0;
+      }
+    }
+
+    function updateDelayedInput(ms) {
+      if (!state.mods.delayMs) { Object.assign(input, rawInput); return; }
+      delayedQueue.push({ at: ms + state.mods.delayMs, snap: { ...rawInput } });
+      while (delayedQueue.length && delayedQueue[0].at <= ms) Object.assign(input, delayedQueue.shift().snap);
+    }
+
+    function die() {
+      state.running = false;
+      addParticles(state.player.x, state.player.y, '#ff6579', 40, 4);
+      state.shake = 14;
+      showBig('RUN FAILED', '#ff6579');
+      saveScore();
+      ui.result.textContent = `${state.playerName} • ${state.distance} m • ${state.time.toFixed(1)} s`;
+      ui.overOverlay.classList.remove('hidden');
+    }
+
+    function update(ts) {
+      if (!state.running) return;
+      const dt = Math.min(32, (ts - state.lastTs) || 16);
+      state.lastTs = ts;
+      const ms = ts - state.startAt;
+      state.time = ms / 1000;
+
+      resetMods();
+      if (state.activeDebuff) state.activeDebuff.apply(state.mods);
+      updateDebuffs(ms);
+      updateDelayedInput(ms);
+
+      const p = state.player;
+      let steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      if (state.mods.reverse) steer *= -1;
+
+      p.vx += steer * 0.16 * state.mods.side;
+      p.vx *= state.mods.friction;
+      p.vx += state.mods.auto * 0.065;
+      p.vx = Math.min(p.vx, state.mods.auto + 4.2);
+
+      if (input.jump && p.grounded) {
+        p.vy = state.mods.jump;
+        p.grounded = false;
+        addParticles(p.x + p.w/2, p.y + p.h, '#74e3ff', 12, 2);
+      }
+
+      p.vy += state.mods.gravity;
+      p.x += p.vx * dt / 16;
+      p.y += p.vy * dt / 16;
+
+      generateTerrain(p.x + 1800);
+      p.grounded = false;
+      for (const s of state.segments) {
+        const withinX = p.x + p.w > s.x && p.x < s.x + s.w;
+        const landing = p.y + p.h >= s.y && p.y + p.h <= s.y + 52 && p.vy >= 0;
+        if (withinX && landing) {
+          p.y = s.y - p.h;
+          p.vy = 0;
+          if (!p.grounded) addParticles(p.x + p.w/2, p.y + p.h, '#74ff9e', 7, 1.5);
+          p.grounded = true;
+        }
+      }
+
+      for (const sp of state.spikes) {
+        if (p.x < sp.x + sp.w && p.x + p.w > sp.x && p.y < sp.y + sp.h && p.y + p.h > sp.y) return die();
+      }
+      if (p.y > canvas.height + 120) return die();
+
+      state.camX = Math.max(0, p.x - 280);
+      state.distance = Math.floor(p.x / 10);
+      ui.distance.textContent = `${state.distance} m`;
+      ui.time.textContent = `${state.time.toFixed(1)} s`;
+      ui.next.textContent = `${Math.max(0, (state.nextDebuffAt - ms) / 1000).toFixed(1)} s`;
+
+      for (const pt of particles) { pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.04; pt.life -= 1; }
+      particles = particles.filter(pt => pt.life > 0);
+    }
+
+    function draw() {
+      ctx.save();
+      if (state.shake > 0) {
+        ctx.translate((rand()-0.5)*state.shake, (rand()-0.5)*state.shake);
+        state.shake *= 0.88;
+        if (state.shake < 0.35) state.shake = 0;
+      }
+
+      ctx.fillStyle = '#070b1d';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let i=0;i<90;i++) {
+        const x = ((i*163) - state.camX*0.2) % (canvas.width + 220);
+        const y = (i*77) % 300 + 20;
+        ctx.fillStyle = 'rgba(144,167,255,0.2)';
+        ctx.fillRect(x, y, 2, 2);
+      }
+
+      ctx.translate(-state.camX, 0);
+      for (const s of state.segments) {
+        ctx.fillStyle = '#5f76f3';
+        ctx.fillRect(s.x, s.y, s.w, 80);
+        ctx.fillStyle = 'rgba(255,255,255,.2)';
+        ctx.fillRect(s.x, s.y, s.w, 6);
+      }
+
+      for (const sp of state.spikes) {
+        ctx.fillStyle = '#ff6579';
+        ctx.beginPath();
+        ctx.moveTo(sp.x, sp.y + sp.h);
+        ctx.lineTo(sp.x + sp.w/2, sp.y);
+        ctx.lineTo(sp.x + sp.w, sp.y + sp.h);
+        ctx.fill();
+      }
+
+      const p = state.player;
+      ctx.fillStyle = '#edf2ff';
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillStyle = '#74e3ff';
+      ctx.fillRect(p.x + 7, p.y + 10, 20, 8);
+
+      for (const pt of particles) {
+        ctx.globalAlpha = Math.max(0, pt.life / 52);
+        ctx.fillStyle = pt.color;
+        ctx.fillRect(pt.x, pt.y, 3, 3);
+        ctx.globalAlpha = 1;
+      }
+
+      if (state.glitchMs > 0) {
+        state.glitchMs -= 16;
+        ctx.fillStyle = 'rgba(255,119,217,.08)';
+        ctx.fillRect(state.camX, 0, canvas.width, canvas.height);
+      }
+
+      ctx.restore();
+    }
+
+    function loop(ts) { update(ts); draw(); requestAnimationFrame(loop); }
+
+    function saveScore() {
+      const key = 'debuff_run_endless_top10';
+      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      list.push({ name: state.playerName, distance: state.distance, time: state.time });
+      list.sort((a,b) => b.distance - a.distance || b.time - a.time);
+      localStorage.setItem(key, JSON.stringify(list.slice(0, 10)));
+      renderBoard();
+    }
+
+    function renderBoard() {
+      const key = 'debuff_run_endless_top10';
+      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      ui.board.innerHTML = '';
+      if (!list.length) {
+        const li = document.createElement('li'); li.textContent = 'Henüz skor yok'; ui.board.appendChild(li); return;
+      }
+      list.forEach((s,i) => { const li = document.createElement('li'); li.textContent = `#${i+1} ${s.name} — ${s.distance} m (${s.time.toFixed(1)}s)`; ui.board.appendChild(li); });
+    }
+
+    function startRun() {
+      initGame();
+      state.playerName = (ui.nameInput.value || 'Runner').trim().slice(0,20);
+      state.running = true;
+      state.startAt = performance.now();
+      state.lastTs = state.startAt;
+      ui.startOverlay.classList.add('hidden');
+      ui.overOverlay.classList.add('hidden');
+      rawInput.left = rawInput.right = rawInput.jump = false;
+      input.left = input.right = input.jump = false;
+      ui.debuff.textContent = 'Yok';
+      showBig('START!', '#74ff9e');
+    }
+
+    window.addEventListener('keydown', e => {
+      if (['KeyA','ArrowLeft'].includes(e.code)) rawInput.left = true;
+      if (['KeyD','ArrowRight'].includes(e.code)) rawInput.right = true;
+      if (['Space','KeyW','ArrowUp'].includes(e.code)) { rawInput.jump = true; e.preventDefault(); }
+      if (e.code === 'KeyR') startRun();
+    });
+    window.addEventListener('keyup', e => {
+      if (['KeyA','ArrowLeft'].includes(e.code)) rawInput.left = false;
+      if (['KeyD','ArrowRight'].includes(e.code)) rawInput.right = false;
+      if (['Space','KeyW','ArrowUp'].includes(e.code)) rawInput.jump = false;
+    });
+
+    document.getElementById('startBtn').onclick = startRun;
+    document.getElementById('restartBtn').onclick = startRun;
+    document.getElementById('topRestart').onclick = startRun;
+
+    initGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
